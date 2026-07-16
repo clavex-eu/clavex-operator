@@ -1,0 +1,13 @@
+apiVersion: clavex.clavex.eu/v1alpha1
+kind: ClavexRole
+metadata:
+  labels:
+    app.kubernetes.io/name: clavex-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: clavexrole-sample
+spec:
+  orgRef: acme
+  authSecretRef:
+    name: acme-admin-api-key
+  name: admin
+  description: Full administrative access to the Acme organisation.

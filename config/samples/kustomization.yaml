@@ -1,0 +1,10 @@
+## Append samples of your project ##
+resources:
+- clavex_v1alpha1_clavexclient.yaml
+- clavex_v1alpha1_clavexidentityprovider.yaml
+- clavex_v1alpha1_clavexrole.yaml
+- clavex_v1alpha1_clavexgroup.yaml
+- clavex_v1alpha1_clavexwebhook.yaml
+- clavex_v1alpha1_clavexorg.yaml
+- clavex_v1alpha1_clavexauthpolicy.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples

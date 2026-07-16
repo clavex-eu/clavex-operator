@@ -1,0 +1,27 @@
+apiVersion: clavex.clavex.eu/v1alpha1
+kind: ClavexIdentityProvider
+metadata:
+  labels:
+    app.kubernetes.io/name: clavex-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: clavexidentityprovider-sample
+spec:
+  orgRef: acme
+  authSecretRef:
+    name: acme-admin-api-key
+  name: Acme Corporate Okta
+  providerType: oidc
+  enabled: true
+  clientId: acme-okta-client
+  clientSecretRef:
+    name: acme-okta-client-secret
+  config:
+    authorizationUrl: https://acme.okta.com/oauth2/v1/authorize
+    tokenUrl: https://acme.okta.com/oauth2/v1/token
+    userinfoUrl: https://acme.okta.com/oauth2/v1/userinfo
+    scopes: openid profile email groups
+  allowJit: true
+  rolesClaim: groups
+  roleClaimMappings:
+    acme-admins: admin
+    acme-users: member

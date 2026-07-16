@@ -1,0 +1,23 @@
+apiVersion: clavex.clavex.eu/v1alpha1
+kind: ClavexOrg
+metadata:
+  labels:
+    app.kubernetes.io/name: clavex-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: clavexorg-sample
+spec:
+  orgRef: acme
+  authSecretRef:
+    name: acme-admin-api-key
+  passwordPolicy:
+    minLength: 12
+    requireUpper: true
+    requireLower: true
+    requireNumber: true
+    requireSpecial: true
+    maxAgeDays: 90
+    historyCount: 5
+  rateLimits:
+    maxAttemptsPerMinute: 10
+    lockoutDurationSeconds: 900
+    ipMaxAttemptsPerMinute: 60

@@ -1,0 +1,68 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - clavex.clavex.eu
+  resources:
+  - clavexauthpolicies
+  - clavexclients
+  - clavexgroups
+  - clavexidentityproviders
+  - clavexorgs
+  - clavexroles
+  - clavexwebhooks
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - clavex.clavex.eu
+  resources:
+  - clavexauthpolicies/finalizers
+  - clavexclients/finalizers
+  - clavexgroups/finalizers
+  - clavexidentityproviders/finalizers
+  - clavexorgs/finalizers
+  - clavexroles/finalizers
+  - clavexwebhooks/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - clavex.clavex.eu
+  resources:
+  - clavexauthpolicies/status
+  - clavexclients/status
+  - clavexgroups/status
+  - clavexidentityproviders/status
+  - clavexorgs/status
+  - clavexroles/status
+  - clavexwebhooks/status
+  verbs:
+  - get
+  - patch
+  - update

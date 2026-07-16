@@ -1,0 +1,37 @@
+# Requires a Secret named "acme-admin-api-key" in the same namespace with
+# data keys "apiKey" (org-scoped Clavex API key) and "orgId" (its org UUID).
+# See docs/operator.md for how to mint one.
+apiVersion: clavex.clavex.eu/v1alpha1
+kind: ClavexClient
+metadata:
+  labels:
+    app.kubernetes.io/name: clavex-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: clavexclient-sample
+spec:
+  orgRef: acme
+  authSecretRef:
+    name: acme-admin-api-key
+  clientId: acme-dashboard
+  name: Acme Dashboard
+  redirectUris:
+    - https://dashboard.acme.example/callback
+  postLogoutRedirectUris:
+    - https://dashboard.acme.example/logged-out
+  grantTypes:
+    - authorization_code
+    - refresh_token
+  responseTypes:
+    - code
+  scopes:
+    - openid
+    - profile
+    - email
+  isPublic: false
+  isActive: true
+  tokenEndpointAuthMethod: client_secret_basic
+  idTokenSignedResponseAlg: RS256
+  # The controller writes the generated client secret here on create;
+  # it never reads clientSecret back from the Admin API afterwards.
+  clientSecretRef:
+    name: acme-dashboard-client-secret

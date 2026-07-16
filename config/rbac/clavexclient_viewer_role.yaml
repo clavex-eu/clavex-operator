@@ -1,0 +1,29 @@
+# This rule is not used by the project clavex-operator itself.
+# It is provided to allow the cluster admin to help manage permissions for users.
+#
+# Grants read-only access to clavex.clavex.eu resources.
+# This role is intended for users who need visibility into these resources
+# without permissions to modify them. It is ideal for monitoring purposes and limited-access viewing.
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: clavex-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: clavexclient-viewer-role
+rules:
+- apiGroups:
+  - clavex.clavex.eu
+  resources:
+  - clavexclients
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - clavex.clavex.eu
+  resources:
+  - clavexclients/status
+  verbs:
+  - get

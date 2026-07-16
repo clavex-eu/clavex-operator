@@ -1,0 +1,18 @@
+apiVersion: clavex.clavex.eu/v1alpha1
+kind: ClavexWebhook
+metadata:
+  labels:
+    app.kubernetes.io/name: clavex-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: clavexwebhook-sample
+spec:
+  orgRef: acme
+  authSecretRef:
+    name: acme-admin-api-key
+  url: https://events.acme.example/webhooks/clavex
+  events:
+    - user.login
+    - user.password.changed
+  enabled: true
+  signingKeyRef:
+    name: acme-webhook-signing-key

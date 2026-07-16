@@ -1,0 +1,18 @@
+apiVersion: clavex.clavex.eu/v1alpha1
+kind: ClavexGroup
+metadata:
+  labels:
+    app.kubernetes.io/name: clavex-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: clavexgroup-sample
+spec:
+  orgRef: acme
+  authSecretRef:
+    name: acme-admin-api-key
+  name: platform-team
+  # Names of ClavexRole resources to assign; apply order relative to those
+  # roles does not matter — the controller requeues until each name
+  # resolves to a live role.
+  roles:
+    - admin
+    - member

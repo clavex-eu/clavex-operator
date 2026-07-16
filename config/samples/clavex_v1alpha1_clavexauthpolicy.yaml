@@ -1,0 +1,26 @@
+apiVersion: clavex.clavex.eu/v1alpha1
+kind: ClavexAuthPolicy
+metadata:
+  labels:
+    app.kubernetes.io/name: clavex-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: clavexauthpolicy-sample
+spec:
+  orgRef: acme
+  authSecretRef:
+    name: acme-admin-api-key
+  name: require-mfa-outside-office-hours
+  priority: 50
+  action: require_mfa
+  enabled: true
+  conditions:
+    notCountries:
+      - IT
+    mfaEnrolled: false
+    daysOfWeek:
+      - Sat
+      - Sun
+    hourRange:
+      from: 20
+      to: 6
+    lastLoginBefore: "720h"
