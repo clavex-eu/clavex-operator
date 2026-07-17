@@ -37,6 +37,7 @@ import (
 
 	clavexv1alpha1 "github.com/clavex-eu/clavex-operator/api/v1alpha1"
 	"github.com/clavex-eu/clavex-operator/internal/authsecret"
+	"github.com/clavex-eu/clavex-operator/internal/eventstream"
 )
 
 const (
@@ -44,10 +45,15 @@ const (
 	// the Admin API before the CR is removed from the cluster.
 	clavexClientFinalizer = "clavex.eu/clavexclient-finalizer"
 
-	// requeueInterval drives periodic drift detection: even without a spec
-	// change, we re-reconcile periodically to catch out-of-band edits made
-	// directly against the Admin API (mirrors `clavexctl org diff`).
-	requeueInterval = 5 * time.Minute
+	// requeueInterval is the safety net for drift events missed by the event
+	// stream beyond its replay window (or while the stream was disconnected
+	// longer than replay can cover) — it is NOT the primary drift-detection
+	// path. Near-instant drift detection comes from the Admin API event stream
+	// (see internal/eventstream), which enqueues an immediate reconcile on any
+	// out-of-band mutation. This periodic re-reconcile only backstops the rare
+	// case where a live event never reached us; hence the relatively long
+	// interval (raised from 5m once the stream became the primary path).
+	requeueInterval = 15 * time.Minute
 
 	conditionTypeReady  = "Ready"
 	conditionTypeSynced = "Synced"
@@ -83,6 +89,31 @@ type ClavexClientReconciler struct {
 	// comes from the org-scoped API key in each CR's authSecretRef, not
 	// from a per-org server URL.
 	ClavexServerURL string
+
+	// EventStream, when set, drives near-instant drift detection by enqueuing a
+	// reconcile as soon as the Admin API reports an out-of-band mutation, rather
+	// than waiting for the periodic requeueInterval poll.
+	EventStream *eventstream.Manager
+}
+
+// streamItems lists all ClavexClient CRs as event-stream items, so the Manager
+// can discover org connections and enqueue reconciles on live events.
+func (r *ClavexClientReconciler) streamItems(ctx context.Context) ([]eventstream.Item, error) {
+	var list clavexv1alpha1.ClavexClientList
+	if err := r.List(ctx, &list); err != nil {
+		return nil, err
+	}
+	items := make([]eventstream.Item, 0, len(list.Items))
+	for i := range list.Items {
+		cr := &list.Items[i]
+		items = append(items, eventstream.Item{
+			Object:    cr,
+			OrgSlug:   cr.Spec.OrgRef,
+			SecretRef: cr.Spec.AuthSecretRef,
+			Namespace: cr.Namespace,
+		})
+	}
+	return items, nil
 }
 
 // +kubebuilder:rbac:groups=clavex.clavex.eu,resources=clavexclients,verbs=get;list;watch;create;update;patch;delete
@@ -328,8 +359,11 @@ func (r *ClavexClientReconciler) setCondition(cr *clavexv1alpha1.ClavexClient, c
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ClavexClientReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
+	b := ctrl.NewControllerManagedBy(mgr).
 		For(&clavexv1alpha1.ClavexClient{}).
-		Named("clavexclient").
-		Complete(r)
+		Named("clavexclient")
+	if r.EventStream != nil {
+		b = b.WatchesRawSource(streamSource(r.EventStream, eventstream.ResourceOIDCClient, r.streamItems))
+	}
+	return b.Complete(r)
 }

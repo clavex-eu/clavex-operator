@@ -34,6 +34,7 @@ import (
 
 	clavexv1alpha1 "github.com/clavex-eu/clavex-operator/api/v1alpha1"
 	"github.com/clavex-eu/clavex-operator/internal/authsecret"
+	"github.com/clavex-eu/clavex-operator/internal/eventstream"
 )
 
 // clavexRoleFinalizer ensures the remote role is deleted from the Admin
@@ -51,6 +52,29 @@ type ClavexRoleReconciler struct {
 	// ClavexServerURL is the base URL of the Clavex Admin API. See
 	// ClavexClientReconciler.ClavexServerURL.
 	ClavexServerURL string
+
+	// EventStream drives near-instant drift detection — see
+	// ClavexClientReconciler.EventStream.
+	EventStream *eventstream.Manager
+}
+
+// streamItems lists all ClavexRole CRs as event-stream items.
+func (r *ClavexRoleReconciler) streamItems(ctx context.Context) ([]eventstream.Item, error) {
+	var list clavexv1alpha1.ClavexRoleList
+	if err := r.List(ctx, &list); err != nil {
+		return nil, err
+	}
+	items := make([]eventstream.Item, 0, len(list.Items))
+	for i := range list.Items {
+		cr := &list.Items[i]
+		items = append(items, eventstream.Item{
+			Object:    cr,
+			OrgSlug:   cr.Spec.OrgRef,
+			SecretRef: cr.Spec.AuthSecretRef,
+			Namespace: cr.Namespace,
+		})
+	}
+	return items, nil
 }
 
 // +kubebuilder:rbac:groups=clavex.clavex.eu,resources=clavexroles,verbs=get;list;watch;create;update;patch;delete
@@ -215,8 +239,11 @@ func (r *ClavexRoleReconciler) setCondition(cr *clavexv1alpha1.ClavexRole, condT
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ClavexRoleReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
+	b := ctrl.NewControllerManagedBy(mgr).
 		For(&clavexv1alpha1.ClavexRole{}).
-		Named("clavexrole").
-		Complete(r)
+		Named("clavexrole")
+	if r.EventStream != nil {
+		b = b.WatchesRawSource(streamSource(r.EventStream, eventstream.ResourceRole, r.streamItems))
+	}
+	return b.Complete(r)
 }
