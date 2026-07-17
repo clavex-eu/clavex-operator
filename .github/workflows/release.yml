@@ -1,0 +1,98 @@
+# Builds and publishes the controller-manager image to GHCR and attaches a
+# pinned, consolidated installer (dist/install.yaml) to the GitHub Release
+# whenever a semver tag (vX.Y.Z) is pushed.
+#
+# The image is published to ghcr.io/clavex-eu/clavex-operator:<tag>. The
+# floating ":latest" tag is only moved for stable releases (tags without a
+# "-prerelease" suffix), so pre-releases never become the default pull.
+#
+# dist/install.yaml pins the exact version tag (never ":latest") so that
+# `kubectl apply -f .../releases/download/<tag>/install.yaml` reproduces a
+# specific build.
+#
+# workflow_dispatch (with a `tag` input) republishes an already-pushed tag —
+# e.g. the initial v0.1.0 whose tag existed before this workflow did —
+# without having to move or recreate the tag.
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing semver tag to (re)publish, e.g. v0.1.0'
+        required: true
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/clavex-eu/clavex-operator
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # create/update the Release and upload install.yaml
+      packages: write   # push the image to GHCR
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          persist-credentials: false
+
+      - name: Resolve version
+        id: meta
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          echo "version=$TAG" >> "$GITHUB_OUTPUT"
+          if [[ "$TAG" == *-* ]]; then
+            echo "stable=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "stable=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version-file: go.mod
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push controller image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.meta.outputs.version }}
+            ${{ steps.meta.outputs.stable == 'true' && format('{0}:latest', env.IMAGE) || '' }}
+
+      - name: Generate pinned installer
+        run: make build-installer IMG=${{ env.IMAGE }}:${{ steps.meta.outputs.version }}
+
+      - name: Publish installer to the Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.version }}
+          files: dist/install.yaml
+          make_latest: ${{ steps.meta.outputs.stable }}
+          prerelease: ${{ steps.meta.outputs.stable != 'true' }}

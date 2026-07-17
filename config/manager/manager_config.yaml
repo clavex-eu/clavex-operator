@@ -1,0 +1,23 @@
+# manager-config supplies the one operator-wide setting the manager
+# needs at startup: the base URL of the Clavex Admin API it reconciles
+# against (cmd/main.go's --clavex-server-url flag / CLAVEX_SERVER_URL
+# env var — see manager.yaml's env block).
+#
+# This placeholder value is intentionally invalid so that a forgotten
+# override fails fast at pod startup rather than silently pointing at
+# the wrong Admin API. Override it in your own Kustomize overlay with a
+# configMapGenerator + `behavior: merge`, e.g.:
+#
+#   configMapGenerator:
+#     - name: manager-config
+#       behavior: merge
+#       literals:
+#         - clavex-server-url=https://id.acme.example
+#
+# See README.md and docs/operator.md for a full overlay example.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: manager-config
+data:
+  clavex-server-url: "https://CHANGE-ME.invalid"
