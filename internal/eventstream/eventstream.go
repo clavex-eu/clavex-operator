@@ -100,7 +100,22 @@ type Manager struct {
 	mu    sync.Mutex
 	regs  map[string]*registration
 	conns map[string]*conn // key: org slug
+
+	// debounce collapses repeated enqueues of the same object within a short
+	// window. It bounds the reconcile rate an event storm can drive — most
+	// importantly the operator's own corrective write echoing back through the
+	// stream — so a drift-comparison that fails to converge degrades to the
+	// periodic poll's cadence instead of hammering the Admin API. Safe because
+	// each reconcile re-reads the full live state, so collapsing N events into
+	// one loses nothing.
+	debounceMu  sync.Mutex
+	lastEnqueue map[string]time.Time
 }
+
+// enqueueDebounce is the minimum interval between stream-driven reconciles of
+// the same object. Echoes arrive within milliseconds, so this collapses them
+// while keeping drift detection effectively instant.
+const enqueueDebounce = 2 * time.Second
 
 // NewManager creates a Manager targeting the given Admin API base URL.
 func NewManager(serverURL string, resolveKey KeyResolver, log logr.Logger) *Manager {
@@ -112,7 +127,21 @@ func NewManager(serverURL string, resolveKey KeyResolver, log logr.Logger) *Mana
 		replayCount:   50,
 		regs:          map[string]*registration{},
 		conns:         map[string]*conn{},
+		lastEnqueue:   map[string]time.Time{},
 	}
+}
+
+// shouldEnqueue reports whether an object may be enqueued now, recording the
+// time when it may. It returns false while the object is within its debounce
+// window, collapsing echo storms (including the operator's own writes).
+func (m *Manager) shouldEnqueue(key string) bool {
+	m.debounceMu.Lock()
+	defer m.debounceMu.Unlock()
+	if last, ok := m.lastEnqueue[key]; ok && time.Since(last) < enqueueDebounce {
+		return false
+	}
+	m.lastEnqueue[key] = time.Now()
+	return true
 }
 
 // Register wires a Kind into the stream and returns the channel the controller
@@ -250,6 +279,10 @@ func (m *Manager) dispatch(ctx context.Context, orgSlug, resourceType string) {
 	for _, it := range items {
 		if it.OrgSlug != orgSlug {
 			continue
+		}
+		key := resourceType + "|" + orgSlug + "|" + it.Object.GetNamespace() + "|" + it.Object.GetName()
+		if !m.shouldEnqueue(key) {
+			continue // within debounce window — collapse the echo
 		}
 		select {
 		case r.ch <- event.GenericEvent{Object: it.Object}:

@@ -19,7 +19,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -295,9 +294,9 @@ func (r *ClavexClientReconciler) reconcileClient(ctx context.Context, cvx *clave
 // mutable fields of spec, avoiding a no-op PATCH on every reconcile.
 func clientUpToDate(live *clavex.OIDCClient, cr *clavexv1alpha1.ClavexClient) bool {
 	return live.Name == cr.Spec.Name &&
-		reflect.DeepEqual(live.RedirectURIs, cr.Spec.RedirectURIs) &&
-		reflect.DeepEqual(live.PostLogoutRedirectURIs, cr.Spec.PostLogoutRedirectURIs) &&
-		reflect.DeepEqual(live.GrantTypes, cr.Spec.GrantTypes) &&
+		equalStringSets(live.RedirectURIs, cr.Spec.RedirectURIs) &&
+		equalStringSets(live.PostLogoutRedirectURIs, cr.Spec.PostLogoutRedirectURIs) &&
+		equalStringSets(live.GrantTypes, cr.Spec.GrantTypes) &&
 		live.IsActive == cr.Spec.IsActive
 }
 

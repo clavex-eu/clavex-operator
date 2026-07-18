@@ -96,6 +96,23 @@ func TestDispatch_RelevantEnqueuesMatchingOrg(t *testing.T) {
 	}
 }
 
+// Rapid repeated events for the same object (the operator's own write echoing
+// back through the stream) collapse to a single reconcile within the debounce
+// window, so a non-converging drift comparison cannot hammer the Admin API.
+func TestDispatch_DebouncesEcho(t *testing.T) {
+	m := testManager(t, "http://example")
+	ch := m.Register(ResourceOIDCClient, func(context.Context) ([]Item, error) {
+		return []Item{{Object: clientCR("a1", "orgA"), OrgSlug: "orgA"}}, nil
+	})
+
+	m.dispatch(context.Background(), "orgA", ResourceOIDCClient)
+	m.dispatch(context.Background(), "orgA", ResourceOIDCClient) // echo, within window
+
+	if got := drain(ch, 2, 200*time.Millisecond); len(got) != 1 {
+		t.Fatalf("expected the echo to collapse to 1 enqueue, got %d", len(got))
+	}
+}
+
 // An event whose resource_type the operator does not manage enqueues nothing.
 func TestDispatch_UnmanagedTypeIgnored(t *testing.T) {
 	m := testManager(t, "http://example")
