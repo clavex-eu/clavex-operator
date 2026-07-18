@@ -97,9 +97,10 @@ type Manager struct {
 	discoverEvery time.Duration
 	replayCount   int
 
-	mu    sync.Mutex
-	regs  map[string]*registration
-	conns map[string]*conn // key: org slug
+	mu     sync.Mutex
+	regs   map[string]*registration
+	conns  map[string]*conn // key: org slug
+	runCtx context.Context  // set by Start; the lifetime connections run under
 
 	// debounce collapses repeated enqueues of the same object within a short
 	// window. It bounds the reconcile rate an event storm can drive — most
@@ -161,6 +162,29 @@ func (m *Manager) Register(resourceType string, lister Lister) <-chan event.Gene
 	return r.ch
 }
 
+// EnsureOrgWithKey opens a stream connection for orgSlug immediately if one is
+// not already open, using an API key the caller already resolved. Controllers
+// call it on reconcile so a newly-applied CR's org starts receiving live drift
+// events at once, instead of waiting for the next periodic discovery tick.
+// No-op before Start (discovery will open it) or when already connected.
+func (m *Manager) EnsureOrgWithKey(orgSlug, apiKey string) {
+	if orgSlug == "" || apiKey == "" {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.runCtx == nil {
+		return // not started yet; the discovery loop will open it
+	}
+	if _, exists := m.conns[orgSlug]; exists {
+		return
+	}
+	c := newConn(m, orgSlug, apiKey)
+	m.conns[orgSlug] = c
+	go c.run(m.runCtx)
+	m.log.Info("opened event stream on demand", "org", orgSlug)
+}
+
 // NeedLeaderElection ties the stream to leadership: only the leader reconciles,
 // so only the leader should hold connections and enqueue work.
 func (m *Manager) NeedLeaderElection() bool { return true }
@@ -169,6 +193,10 @@ func (m *Manager) NeedLeaderElection() bool { return true }
 // manager.Runnable.
 func (m *Manager) Start(ctx context.Context) error {
 	m.log.Info("starting event stream manager", "server", m.serverURL)
+	m.mu.Lock()
+	m.runCtx = ctx
+	m.mu.Unlock()
+
 	t := time.NewTicker(m.discoverEvery)
 	defer t.Stop()
 

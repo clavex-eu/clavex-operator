@@ -96,6 +96,22 @@ func TestDispatch_RelevantEnqueuesMatchingOrg(t *testing.T) {
 	}
 }
 
+// EnsureOrgWithKey is a no-op on empty inputs and before Start (runCtx nil), so
+// it never opens a connection with bad coordinates or outside the manager's
+// lifetime; the periodic discovery loop opens connections once Start runs.
+func TestEnsureOrgWithKey_Guards(t *testing.T) {
+	m := testManager(t, "http://example")
+	m.EnsureOrgWithKey("", "k")     // empty slug
+	m.EnsureOrgWithKey("orgA", "")  // empty key
+	m.EnsureOrgWithKey("orgA", "k") // runCtx nil: not started yet
+	m.mu.Lock()
+	n := len(m.conns)
+	m.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("expected no connections opened, got %d", n)
+	}
+}
+
 // Rapid repeated events for the same object (the operator's own write echoing
 // back through the stream) collapse to a single reconcile within the debounce
 // window, so a non-converging drift comparison cannot hammer the Admin API.

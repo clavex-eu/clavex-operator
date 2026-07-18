@@ -112,6 +112,9 @@ func (r *ClavexRoleReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
+	if r.EventStream != nil {
+		r.EventStream.EnsureOrgWithKey(cr.Spec.OrgRef, apiKey)
+	}
 	cvx, err := clavex.New(r.ClavexServerURL, clavex.WithAPIKey(apiKey))
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("building Clavex client: %w", err)
