@@ -50,6 +50,11 @@ type fakeOrgAdminAPI struct {
 	liveRateLimits     map[string]any
 	passwordPutCalled  bool
 	rateLimitPutCalled bool
+	// Declarative-management marker plumbing.
+	passwordManagedBy       string
+	rateLimitManagedBy      string
+	passwordMarkerReleased  bool
+	rateLimitMarkerReleased bool
 }
 
 func newFakeOrgAdminAPI(orgID string) *fakeOrgAdminAPI {
@@ -81,6 +86,8 @@ func newFakeOrgAdminAPI(orgID string) *fakeOrgAdminAPI {
 			_ = json.NewEncoder(w).Encode(f.livePasswordPolicy)
 		case http.MethodPut:
 			f.passwordPutCalled = true
+			// The operator stamps the declarative-management marker on writes.
+			f.passwordManagedBy = r.Header.Get("X-Clavex-Managed-By")
 			var body map[string]any
 			Expect(json.NewDecoder(r.Body).Decode(&body)).To(Succeed())
 			f.livePasswordPolicy = body
@@ -90,6 +97,13 @@ func newFakeOrgAdminAPI(orgID string) *fakeOrgAdminAPI {
 		}
 	})
 
+	// Disown endpoint: the operator clears the marker on delete / section removal.
+	mux.HandleFunc(base+"/password-policy/managed-marker", func(w http.ResponseWriter, r *http.Request) {
+		Expect(r.Method).To(Equal(http.MethodDelete))
+		f.passwordMarkerReleased = true
+		w.WriteHeader(http.StatusNoContent)
+	})
+
 	mux.HandleFunc(base+"/rate-limits", func(w http.ResponseWriter, r *http.Request) {
 		Expect(r.Header.Get("X-API-Key")).To(Equal(testOrgAPIKey))
 		switch r.Method {
@@ -97,6 +111,7 @@ func newFakeOrgAdminAPI(orgID string) *fakeOrgAdminAPI {
 			_ = json.NewEncoder(w).Encode(f.liveRateLimits)
 		case http.MethodPut:
 			f.rateLimitPutCalled = true
+			f.rateLimitManagedBy = r.Header.Get("X-Clavex-Managed-By")
 			var body map[string]any
 			Expect(json.NewDecoder(r.Body).Decode(&body)).To(Succeed())
 			f.liveRateLimits = body
@@ -104,6 +119,12 @@ func newFakeOrgAdminAPI(orgID string) *fakeOrgAdminAPI {
 		default:
 			w.WriteHeader(http.StatusMethodNotAllowed)
 		}
+	})
+
+	mux.HandleFunc(base+"/rate-limits/managed-marker", func(w http.ResponseWriter, r *http.Request) {
+		Expect(r.Method).To(Equal(http.MethodDelete))
+		f.rateLimitMarkerReleased = true
+		w.WriteHeader(http.StatusNoContent)
 	})
 
 	f.Server = httptest.NewServer(mux)
@@ -190,6 +211,17 @@ var _ = Describe("ClavexOrg Controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
 
+			// No manager runs in the background, so the finalizer added during
+			// reconcile is never removed automatically. Drive one more pass so
+			// the reconciler processes the deletion (release the markers +
+			// remove the finalizer); otherwise the CR leaks into the next spec
+			// with a stale DeletionTimestamp.
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Get(ctx, typeNamespacedName, resource)).To(HaveOccurred())
+
 			authSecret := &corev1.Secret{}
 			if err := k8sClient.Get(ctx, types.NamespacedName{Name: authSecretName, Namespace: resourceNamespace}, authSecret); err == nil {
 				Expect(k8sClient.Delete(ctx, authSecret)).To(Succeed())
@@ -208,6 +240,10 @@ var _ = Describe("ClavexOrg Controller", func() {
 			By("verifying both settings sections were PUT to the Admin API")
 			Expect(fakeAPI.passwordPutCalled).To(BeTrue())
 			Expect(fakeAPI.rateLimitPutCalled).To(BeTrue())
+
+			By("verifying each PUT carried the declarative-management marker")
+			Expect(fakeAPI.passwordManagedBy).To(Equal(managedBy))
+			Expect(fakeAPI.rateLimitManagedBy).To(Equal(managedBy))
 			Expect(fakeAPI.livePasswordPolicy["min_length"]).To(BeNumerically("==", 12))
 			Expect(fakeAPI.liveRateLimits["max_attempts_per_minute"]).To(BeNumerically("==", 5))
 

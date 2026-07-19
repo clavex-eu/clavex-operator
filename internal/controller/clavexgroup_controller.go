@@ -207,7 +207,7 @@ func (r *ClavexGroupReconciler) reconcileGroup(ctx context.Context, cvx *clavex.
 
 	var gid string
 	if existing == nil {
-		created, err := cvx.Groups.Create(ctx, orgID, clavex.CreateGroupParams{Name: cr.Spec.Name})
+		created, err := cvx.Groups.Create(withManaged(ctx, "ClavexGroup", cr), orgID, clavex.CreateGroupParams{Name: cr.Spec.Name})
 		if err != nil {
 			return "", fmt.Errorf("creating group: %w", err)
 		}

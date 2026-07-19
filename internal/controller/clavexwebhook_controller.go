@@ -238,8 +238,10 @@ func (r *ClavexWebhookReconciler) reconcileWebhook(ctx context.Context, cvx *cla
 		return "", false, err
 	}
 
+	mctx := withManaged(ctx, "ClavexWebhook", cr)
+
 	if existing == nil {
-		created, err := cvx.Webhooks.Create(ctx, orgID, params)
+		created, err := cvx.Webhooks.Create(mctx, orgID, params)
 		if err != nil {
 			return "", false, fmt.Errorf("creating webhook: %w", err)
 		}
@@ -256,7 +258,7 @@ func (r *ClavexWebhookReconciler) reconcileWebhook(ctx context.Context, cvx *cla
 			"Live webhook %q no longer matches spec though it was not edited via kubectl; correcting via PATCH", cr.Spec.URL)
 	}
 
-	if _, err := cvx.Webhooks.Update(ctx, orgID, existing.ID, params); err != nil {
+	if _, err := cvx.Webhooks.Update(mctx, orgID, existing.ID, params); err != nil {
 		return "", drifted, fmt.Errorf("updating webhook: %w", err)
 	}
 	return existing.ID, drifted, nil

@@ -249,8 +249,10 @@ func (r *ClavexIdentityProviderReconciler) reconcileIDP(ctx context.Context, cvx
 		return "", false, err
 	}
 
+	mctx := withManaged(ctx, "ClavexIdentityProvider", cr)
+
 	if existing == nil {
-		created, err := cvx.IdentityProviders.Create(ctx, orgID, params)
+		created, err := cvx.IdentityProviders.Create(mctx, orgID, params)
 		if err != nil {
 			return "", false, fmt.Errorf("creating identity provider: %w", err)
 		}
@@ -267,7 +269,7 @@ func (r *ClavexIdentityProviderReconciler) reconcileIDP(ctx context.Context, cvx
 			"Live identity provider %q no longer matches spec though it was not edited via kubectl; correcting via PATCH", cr.Spec.Name)
 	}
 
-	if _, err := cvx.IdentityProviders.Update(ctx, orgID, existing.ID, params); err != nil {
+	if _, err := cvx.IdentityProviders.Update(mctx, orgID, existing.ID, params); err != nil {
 		return "", drifted, fmt.Errorf("updating identity provider: %w", err)
 	}
 	return existing.ID, drifted, nil

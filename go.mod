@@ -3,7 +3,7 @@ module github.com/clavex-eu/clavex-operator
 go 1.26.0
 
 require (
-	github.com/clavex-eu/clavex-sdk-go v0.2.0
+	github.com/clavex-eu/clavex-sdk-go v0.3.0
 	github.com/go-logr/logr v1.4.3
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/onsi/ginkgo/v2 v2.27.4

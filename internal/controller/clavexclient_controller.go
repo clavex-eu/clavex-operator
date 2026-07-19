@@ -240,9 +240,13 @@ func (r *ClavexClientReconciler) reconcileClient(ctx context.Context, cvx *clave
 		existing = nil
 	}
 
+	// mctx stamps the declarative-management marker (managed_by/managed_ref) on
+	// the create/update below, so the console shows this client as operator-owned.
+	mctx := withManaged(ctx, "ClavexClient", cr)
+
 	if existing == nil {
 		isActive := cr.Spec.IsActive
-		created, err := cvx.Clients.Create(ctx, orgID, clavex.CreateClientParams{
+		created, err := cvx.Clients.Create(mctx, orgID, clavex.CreateClientParams{
 			Name:                cr.Spec.Name,
 			ClientID:            cr.Spec.ClientID,
 			RedirectURIs:        cr.Spec.RedirectURIs,
@@ -279,7 +283,7 @@ func (r *ClavexClientReconciler) reconcileClient(ctx context.Context, cvx *clave
 	}
 
 	isActive := cr.Spec.IsActive
-	_, err = cvx.Clients.Update(ctx, orgID, cr.Spec.ClientID, clavex.UpdateClientParams{
+	_, err = cvx.Clients.Update(mctx, orgID, cr.Spec.ClientID, clavex.UpdateClientParams{
 		Name:                &cr.Spec.Name,
 		RedirectURIs:        cr.Spec.RedirectURIs,
 		PostLogoutRedirects: cr.Spec.PostLogoutRedirectURIs,
