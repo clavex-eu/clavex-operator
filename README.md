@@ -1,5 +1,8 @@
 # clavex-operator
 
+[![release](https://github.com/clavex-eu/clavex-operator/actions/workflows/release.yml/badge.svg)](https://github.com/clavex-eu/clavex-operator/actions/workflows/release.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 A native Kubernetes Operator for [Clavex](https://github.com/clavex-eu/clavex):
 manage OIDC/SAML clients, identity providers, roles, groups, webhooks,
 org-level security policies and auth-policy rules declaratively with
@@ -29,6 +32,26 @@ See [`docs/operator.md`](docs/operator.md) for a full walkthrough with
 package-level doc comments under `api/v1alpha1/`.
 
 ## Getting Started
+
+### Quick install (released bundle)
+Each tagged release publishes a consolidated `install.yaml` (CRDs + RBAC +
+controller-manager Deployment, with the image pinned to that release's
+version) as a GitHub Release asset. Install the latest stable release:
+
+```sh
+kubectl apply -f https://github.com/clavex-eu/clavex-operator/releases/latest/download/install.yaml
+```
+
+Or pin a specific version:
+
+```sh
+kubectl apply -f https://github.com/clavex-eu/clavex-operator/releases/download/v0.1.0/install.yaml
+```
+
+The bundle still requires [cert-manager](https://cert-manager.io/) in the
+cluster (see Prerequisites) and a `manager-config` override supplying your
+Clavex Admin API URL (see "Configure the Clavex Admin API URL"). The pinned
+image lives at `ghcr.io/clavex-eu/clavex-operator:<tag>`.
 
 ### Prerequisites
 - go version v1.24.6+
@@ -153,11 +176,17 @@ dependencies.
 
 2. Using the installer
 
-Users can just run 'kubectl apply -f <URL for YAML BUNDLE>' to install
-the project, i.e.:
+The CI `release` workflow runs this target on every `vX.Y.Z` tag and attaches
+the resulting `install.yaml` to the matching GitHub Release (it is **not**
+committed to any branch, so no branch ever reflects a floating build). Users
+install from the release asset rather than from a branch:
 
 ```sh
-kubectl apply -f https://raw.githubusercontent.com/<org>/clavex-operator/<tag or branch>/dist/install.yaml
+# latest stable release
+kubectl apply -f https://github.com/clavex-eu/clavex-operator/releases/latest/download/install.yaml
+
+# a specific pinned version
+kubectl apply -f https://github.com/clavex-eu/clavex-operator/releases/download/v0.1.0/install.yaml
 ```
 
 ### By providing a Helm Chart
@@ -187,17 +216,7 @@ More information can be found via the [Kubebuilder Documentation](https://book.k
 
 ## License
 
-Copyright 2026.
+Copyright 2026 Clavex.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+Apache License 2.0 — see [LICENSE](LICENSE).
 

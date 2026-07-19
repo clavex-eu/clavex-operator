@@ -7,9 +7,18 @@ have a Clavex Admin API v2 deployment reachable from the cluster.
 ## 1. Install the operator
 
 ```sh
-# One-off, consolidated manifest (CRDs + RBAC + Deployment):
-kubectl apply -f https://raw.githubusercontent.com/clavex-eu/clavex-operator/main/dist/install.yaml
+# Latest stable release (consolidated manifest: CRDs + RBAC + Deployment):
+kubectl apply -f https://github.com/clavex-eu/clavex-operator/releases/latest/download/install.yaml
+
+# Or pin an exact version:
+kubectl apply -f https://github.com/clavex-eu/clavex-operator/releases/download/v0.1.0/install.yaml
 ```
+
+Each `install.yaml` is attached to its GitHub Release with the
+controller-manager image pinned to that release's version
+(`ghcr.io/clavex-eu/clavex-operator:<tag>`). It is published per tag and is
+**not** committed to any branch, so pinning a version gives a reproducible
+install instead of whatever `main` happened to build.
 
 Before applying, you **must** point the manager at your Admin API — see
 "Configure the Clavex Admin API URL" in [`README.md`](../README.md). If
@@ -281,3 +290,62 @@ Deleting a CR (except `ClavexOrg`, see above) removes the corresponding
 object from the Admin API via a finalizer — `kubectl delete` blocks until
 the remote delete succeeds, then the finalizer is removed and the object
 disappears from `kubectl get`.
+
+## 6. Security model — cluster-wide Secret access
+
+**Read this before installing.** The controller-manager's `ClusterRole`
+(`config/rbac/role.yaml`) grants cluster-wide read *and* write access to
+**all `Secret` objects in every namespace**:
+
+```yaml
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list", "watch", "create", "update", "patch"]
+```
+
+### Why it needs this
+- **Read (`get`/`list`/`watch`)** — every CR authenticates to the Admin API
+  through the Secret named in `spec.authSecretRef`, and that Secret may live
+  in a namespace *other* than the CR's own (`spec.authSecretRef.namespace`).
+  Because the reference can point at any namespace, the role is not scoped to
+  a fixed set. The `ClavexClient` admission webhook resolves the same
+  reference at admission time (section 3b).
+- **Write (`create`/`update`/`patch`)** — `ClavexClient` **generates** the
+  OIDC client secret on first create and writes it back to the Secret named
+  in `spec.clientSecretRef` (section 3, ClavexClient), again potentially in
+  any namespace.
+
+### The trust implication (stated plainly)
+A compromise of the controller-manager Pod — or of a principal able to
+exec into it or read its ServiceAccount token — grants read/write access to
+**every Secret in the cluster**, including Secrets that have nothing to do
+with Clavex (database passwords, TLS keys, cloud credentials, other
+operators' secrets). This is a broad blast radius. Treat the
+controller-manager namespace as a high-privilege tier: restrict who can
+create Pods, exec, or read ServiceAccount tokens there.
+
+### Reducing the blast radius
+- **Namespace-scoped mode is *not* currently available.** The manager has no
+  `--watch-namespace` / `--namespace-scoped` flag today (`cmd/main.go` sets
+  up a cluster-wide cache), and the RBAC ships as `ClusterRole` +
+  `ClusterRoleBinding`. Narrowing it to specific namespaces would require a
+  code change (constrain the manager cache to a namespace set) plus swapping
+  the `ClusterRole`/`ClusterRoleBinding` for namespaced `Role`/`RoleBinding`
+  objects. It is a candidate future option, not a supported toggle.
+- **NetworkPolicy** — `config/network-policy/` ships policies that restrict
+  ingress to the manager's metrics (`allow-metrics-traffic.yaml`) and webhook
+  (`allow-webhook-traffic.yaml`) endpoints. They are **not** part of
+  `config/default` by default; enable them via your own overlay:
+
+  ```yaml
+  resources:
+    - github.com/clavex-eu/clavex-operator/config/default
+    - github.com/clavex-eu/clavex-operator/config/network-policy
+  ```
+
+  Note these limit *network reach to* the manager; they do not narrow the
+  Secret RBAC scope above.
+- **Keep `authSecretRef`/`clientSecretRef` Secrets in the operator's own
+  namespace** where practical: the RBAC grant is unavoidably cluster-wide,
+  but co-locating the Secrets keeps normal operation off other teams'
+  namespaces even though the *permission* to reach them remains.
