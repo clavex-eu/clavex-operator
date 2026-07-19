@@ -27,6 +27,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	clavex "github.com/clavex-eu/clavex-sdk-go"
@@ -35,6 +36,12 @@ import (
 	"github.com/clavex-eu/clavex-operator/internal/authsecret"
 	"github.com/clavex-eu/clavex-operator/internal/eventstream"
 )
+
+// clavexOrgFinalizer lets the operator clear the declarative-management marker
+// off the org's password-policy and rate-limit rows when the ClavexOrg CR is
+// deleted — releasing management without resetting the live settings, so the
+// console badge disappears but the configuration is preserved.
+const clavexOrgFinalizer = "clavex.eu/clavexorg-finalizer"
 
 // ClavexOrgReconciler reconciles a ClavexOrg object
 type ClavexOrgReconciler struct {
@@ -83,9 +90,11 @@ func (r *ClavexOrgReconciler) streamItems(ctx context.Context) ([]eventstream.It
 // org-scoped Admin API key read from spec.authSecretRef. Unlike the other
 // CRDs in this operator, there is no remote object to create or delete —
 // every org already has a password policy and rate-limit configuration
-// (defaults apply until overridden) — so ClavexOrg has no finalizer:
-// deleting the CR simply stops management and leaves the live settings
-// as they last were, it does not reset them to platform defaults.
+// (defaults apply until overridden). Deleting the CR stops management and
+// leaves the live settings as they last were; it does not reset them to
+// platform defaults. A finalizer runs on delete only to clear the
+// declarative-management marker off the managed sections (so the console
+// badge disappears), never to change their values.
 func (r *ClavexOrgReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
@@ -97,14 +106,14 @@ func (r *ClavexOrgReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, fmt.Errorf("getting ClavexOrg: %w", err)
 	}
 
-	// Nothing to clean up remotely on delete — see the Reconcile doc
-	// comment above.
-	if !cr.DeletionTimestamp.IsZero() {
-		return ctrl.Result{}, nil
-	}
-
 	apiKey, orgID, err := authsecret.ResolveAuthSecret(ctx, r.Client, cr.Spec.AuthSecretRef, cr.Namespace)
 	if err != nil {
+		// On deletion we must not block finalizer removal on a missing secret —
+		// drop the finalizer best-effort (the marker cannot be cleared without
+		// credentials, but the CR should still be deletable).
+		if !cr.DeletionTimestamp.IsZero() {
+			return r.finalizeWithoutClient(ctx, &cr)
+		}
 		log.Error(err, "Failed to resolve auth secret")
 		r.setCondition(&cr, conditionTypeReady, metav1.ConditionFalse, "AuthSecretError", err.Error())
 		if statusErr := r.Status().Update(ctx, &cr); statusErr != nil {
@@ -119,6 +128,36 @@ func (r *ClavexOrgReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	cvx, err := clavex.New(r.ClavexServerURL, clavex.WithAPIKey(apiKey))
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("building Clavex client: %w", err)
+	}
+
+	// Handle deletion: release the marker on any section we manage (keeping the
+	// live settings intact), then drop the finalizer. Unlike the other CRDs
+	// there is no remote object to delete.
+	if !cr.DeletionTimestamp.IsZero() {
+		if controllerutil.ContainsFinalizer(&cr, clavexOrgFinalizer) {
+			if err := cvx.PasswordPolicy.ReleaseManagedMarker(ctx, orgID); err != nil && !clavex.IsNotFound(err) {
+				return ctrl.Result{}, fmt.Errorf("releasing password-policy marker: %w", err)
+			}
+			if err := cvx.RateLimits.ReleaseManagedMarker(ctx, orgID); err != nil && !clavex.IsNotFound(err) {
+				return ctrl.Result{}, fmt.Errorf("releasing rate-limits marker: %w", err)
+			}
+			controllerutil.RemoveFinalizer(&cr, clavexOrgFinalizer)
+			if err := r.Update(ctx, &cr); err != nil {
+				return ctrl.Result{}, fmt.Errorf("removing finalizer: %w", err)
+			}
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// Ensure the finalizer is present before we stamp any marker.
+	if !controllerutil.ContainsFinalizer(&cr, clavexOrgFinalizer) {
+		controllerutil.AddFinalizer(&cr, clavexOrgFinalizer)
+		if err := r.Update(ctx, &cr); err != nil {
+			return ctrl.Result{}, fmt.Errorf("adding finalizer: %w", err)
+		}
+		if err := r.Get(ctx, req.NamespacedName, &cr); err != nil {
+			return ctrl.Result{}, fmt.Errorf("re-fetching after finalizer add: %w", err)
+		}
 	}
 
 	drifted, err := r.reconcileOrgSettings(ctx, cvx, orgID, &cr)
@@ -159,28 +198,49 @@ func (r *ClavexOrgReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 // left entirely unmanaged.
 func (r *ClavexOrgReconciler) reconcileOrgSettings(ctx context.Context, cvx *clavex.Client, orgID string, cr *clavexv1alpha1.ClavexOrg) (drifted bool, err error) {
 	if cr.Spec.PasswordPolicy != nil {
-		d, err := r.reconcilePasswordPolicy(ctx, cvx, orgID, cr.Spec.PasswordPolicy)
+		d, err := r.reconcilePasswordPolicy(ctx, cvx, orgID, cr)
 		if err != nil {
 			return false, fmt.Errorf("reconciling password policy: %w", err)
 		}
 		drifted = drifted || d
+	} else if err := cvx.PasswordPolicy.ReleaseManagedMarker(ctx, orgID); err != nil && !clavex.IsNotFound(err) {
+		// Section dropped from spec: stop managing it — clear any marker we set
+		// earlier so the console no longer shows it as operator-managed. The
+		// call is idempotent (a no-op when no marker is set).
+		return false, fmt.Errorf("releasing password-policy marker: %w", err)
 	}
 
 	if cr.Spec.RateLimits != nil {
-		d, err := r.reconcileRateLimits(ctx, cvx, orgID, cr.Spec.RateLimits)
+		d, err := r.reconcileRateLimits(ctx, cvx, orgID, cr)
 		if err != nil {
 			return false, fmt.Errorf("reconciling rate limits: %w", err)
 		}
 		drifted = drifted || d
+	} else if err := cvx.RateLimits.ReleaseManagedMarker(ctx, orgID); err != nil && !clavex.IsNotFound(err) {
+		return false, fmt.Errorf("releasing rate-limits marker: %w", err)
 	}
 
 	return drifted, nil
 }
 
+// finalizeWithoutClient drops the finalizer when we cannot build an Admin API
+// client on the deletion path (e.g. the auth secret is already gone). The
+// marker cannot be cleared without credentials, but the CR must stay deletable.
+func (r *ClavexOrgReconciler) finalizeWithoutClient(ctx context.Context, cr *clavexv1alpha1.ClavexOrg) (ctrl.Result, error) {
+	if controllerutil.ContainsFinalizer(cr, clavexOrgFinalizer) {
+		controllerutil.RemoveFinalizer(cr, clavexOrgFinalizer)
+		if err := r.Update(ctx, cr); err != nil {
+			return ctrl.Result{}, fmt.Errorf("removing finalizer: %w", err)
+		}
+	}
+	return ctrl.Result{}, nil
+}
+
 // reconcilePasswordPolicy fetches the live password policy and, if it
 // doesn't match spec, calls Put to converge — reporting whether a live
 // value had diverged (as opposed to this being the first reconcile).
-func (r *ClavexOrgReconciler) reconcilePasswordPolicy(ctx context.Context, cvx *clavex.Client, orgID string, spec *clavexv1alpha1.PasswordPolicySpec) (drifted bool, err error) {
+func (r *ClavexOrgReconciler) reconcilePasswordPolicy(ctx context.Context, cvx *clavex.Client, orgID string, cr *clavexv1alpha1.ClavexOrg) (drifted bool, err error) {
+	spec := cr.Spec.PasswordPolicy
 	live, err := cvx.PasswordPolicy.Get(ctx, orgID)
 	if err != nil {
 		return false, fmt.Errorf("getting password policy: %w", err)
@@ -197,19 +257,25 @@ func (r *ClavexOrgReconciler) reconcilePasswordPolicy(ctx context.Context, cvx *
 		HistoryCount:   spec.HistoryCount,
 	}
 
-	if live != nil && passwordPolicyUpToDate(*live, desired) {
+	// Re-stamp the marker even when values are already up to date, so a marker
+	// cleared out-of-band (or predating this feature) is restored. Put is
+	// skipped only when nothing changed AND the marker is already ours.
+	managed := live != nil && live.ManagedBy != nil && *live.ManagedBy == managedBy
+	if live != nil && passwordPolicyUpToDate(*live, desired) && managed {
 		return false, nil
 	}
 
-	if _, err := cvx.PasswordPolicy.Put(ctx, orgID, desired); err != nil {
+	if _, err := cvx.PasswordPolicy.Put(withManaged(ctx, "ClavexOrg", cr), orgID, desired); err != nil {
 		return false, fmt.Errorf("updating password policy: %w", err)
 	}
-	return true, nil
+	// Report drift only for an actual value divergence, not a marker-only fix.
+	return live == nil || !passwordPolicyUpToDate(*live, desired), nil
 }
 
 // reconcileRateLimits fetches the live rate-limit config and, if it
 // doesn't match spec, calls Update to converge.
-func (r *ClavexOrgReconciler) reconcileRateLimits(ctx context.Context, cvx *clavex.Client, orgID string, spec *clavexv1alpha1.RateLimitsSpec) (drifted bool, err error) {
+func (r *ClavexOrgReconciler) reconcileRateLimits(ctx context.Context, cvx *clavex.Client, orgID string, cr *clavexv1alpha1.ClavexOrg) (drifted bool, err error) {
+	spec := cr.Spec.RateLimits
 	live, err := cvx.RateLimits.Get(ctx, orgID)
 	if err != nil {
 		return false, fmt.Errorf("getting rate limits: %w", err)
@@ -222,14 +288,17 @@ func (r *ClavexOrgReconciler) reconcileRateLimits(ctx context.Context, cvx *clav
 		IPMaxAttemptsPerMinute: spec.IPMaxAttemptsPerMinute,
 	}
 
-	if live != nil && rateLimitsUpToDate(*live, desired) {
+	// See reconcilePasswordPolicy: skip the Update only when values match AND
+	// the marker is already ours, so a cleared/missing marker gets restored.
+	managed := live != nil && live.ManagedBy != nil && *live.ManagedBy == managedBy
+	if live != nil && rateLimitsUpToDate(*live, desired) && managed {
 		return false, nil
 	}
 
-	if _, err := cvx.RateLimits.Update(ctx, orgID, desired); err != nil {
+	if _, err := cvx.RateLimits.Update(withManaged(ctx, "ClavexOrg", cr), orgID, desired); err != nil {
 		return false, fmt.Errorf("updating rate limits: %w", err)
 	}
-	return true, nil
+	return live == nil || !rateLimitsUpToDate(*live, desired), nil
 }
 
 // passwordPolicyUpToDate compares the fields ClavexOrg manages, ignoring

@@ -239,8 +239,10 @@ func (r *ClavexAuthPolicyReconciler) reconcileAuthPolicy(ctx context.Context, cv
 
 	conditions := buildAuthPolicyConditions(cr.Spec.Conditions)
 
+	mctx := withManaged(ctx, "ClavexAuthPolicy", cr)
+
 	if existing == nil {
-		created, err := cvx.Policies.Create(ctx, orgID, clavex.CreatePolicyRuleParams{
+		created, err := cvx.Policies.Create(mctx, orgID, clavex.CreatePolicyRuleParams{
 			Name:       cr.Spec.Name,
 			Priority:   cr.Spec.Priority,
 			Action:     cr.Spec.Action,
@@ -266,7 +268,7 @@ func (r *ClavexAuthPolicyReconciler) reconcileAuthPolicy(ctx context.Context, cv
 	priority := cr.Spec.Priority
 	action := cr.Spec.Action
 	enabled := cr.Spec.Enabled
-	if _, err := cvx.Policies.Update(ctx, orgID, existing.ID, clavex.UpdatePolicyRuleParams{
+	if _, err := cvx.Policies.Update(mctx, orgID, existing.ID, clavex.UpdatePolicyRuleParams{
 		Name:       &name,
 		Priority:   &priority,
 		Action:     &action,

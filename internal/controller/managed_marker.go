@@ -1,0 +1,43 @@
+/*
+Copyright 2026.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package controller
+
+import (
+	"context"
+	"fmt"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	clavex "github.com/clavex-eu/clavex-sdk-go"
+)
+
+// managedBy is the value the operator stamps into managed_by on every resource
+// it reconciles. The server treats this column as free-form so other
+// declarative sources can adopt the same mechanism later.
+const managedBy = "k8s-operator"
+
+// managedRef renders the human-readable pointer the server stores in
+// managed_ref, e.g. "ClavexClient/clavex-operator-system/testclient".
+func managedRef(kind string, cr metav1.Object) string {
+	return fmt.Sprintf("%s/%s/%s", kind, cr.GetNamespace(), cr.GetName())
+}
+
+// withManaged wraps ctx so every SDK create/update made with it stamps the
+// declarative-management marker headers, attributing the resource to this CR.
+func withManaged(ctx context.Context, kind string, cr metav1.Object) context.Context {
+	return clavex.WithManagedBy(ctx, managedBy, managedRef(kind, cr))
+}

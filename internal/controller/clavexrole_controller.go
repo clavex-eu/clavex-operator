@@ -207,7 +207,7 @@ func (r *ClavexRoleReconciler) reconcileRole(ctx context.Context, cvx *clavex.Cl
 		return existing.ID, nil
 	}
 
-	created, err := cvx.Roles.Create(ctx, orgID, clavex.CreateRoleParams{
+	created, err := cvx.Roles.Create(withManaged(ctx, "ClavexRole", cr), orgID, clavex.CreateRoleParams{
 		Name:        cr.Spec.Name,
 		Description: cr.Spec.Description,
 	})
