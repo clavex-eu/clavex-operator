@@ -34,6 +34,7 @@ import (
 
 	clavexv1alpha1 "github.com/clavex-eu/clavex-operator/api/v1alpha1"
 	"github.com/clavex-eu/clavex-operator/internal/authsecret"
+	"github.com/clavex-eu/clavex-operator/internal/eventstream"
 )
 
 // clavexGroupFinalizer ensures the remote group is deleted from the Admin
@@ -51,6 +52,29 @@ type ClavexGroupReconciler struct {
 	// ClavexServerURL is the base URL of the Clavex Admin API. See
 	// ClavexClientReconciler.ClavexServerURL.
 	ClavexServerURL string
+
+	// EventStream drives near-instant drift detection — see
+	// ClavexClientReconciler.EventStream.
+	EventStream *eventstream.Manager
+}
+
+// streamItems lists all ClavexGroup CRs as event-stream items.
+func (r *ClavexGroupReconciler) streamItems(ctx context.Context) ([]eventstream.Item, error) {
+	var list clavexv1alpha1.ClavexGroupList
+	if err := r.List(ctx, &list); err != nil {
+		return nil, err
+	}
+	items := make([]eventstream.Item, 0, len(list.Items))
+	for i := range list.Items {
+		cr := &list.Items[i]
+		items = append(items, eventstream.Item{
+			Object:    cr,
+			OrgSlug:   cr.Spec.OrgRef,
+			SecretRef: cr.Spec.AuthSecretRef,
+			Namespace: cr.Namespace,
+		})
+	}
+	return items, nil
 }
 
 // +kubebuilder:rbac:groups=clavex.clavex.eu,resources=clavexgroups,verbs=get;list;watch;create;update;patch;delete
@@ -87,6 +111,9 @@ func (r *ClavexGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
+	if r.EventStream != nil {
+		r.EventStream.EnsureOrgWithKey(cr.Spec.OrgRef, apiKey)
+	}
 	cvx, err := clavex.New(r.ClavexServerURL, clavex.WithAPIKey(apiKey))
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("building Clavex client: %w", err)
@@ -269,8 +296,11 @@ func (r *ClavexGroupReconciler) setCondition(cr *clavexv1alpha1.ClavexGroup, con
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ClavexGroupReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
+	b := ctrl.NewControllerManagedBy(mgr).
 		For(&clavexv1alpha1.ClavexGroup{}).
-		Named("clavexgroup").
-		Complete(r)
+		Named("clavexgroup")
+	if r.EventStream != nil {
+		b = b.WatchesRawSource(streamSource(r.EventStream, eventstream.ResourceGroup, r.streamItems))
+	}
+	return b.Complete(r)
 }

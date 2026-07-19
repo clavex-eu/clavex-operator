@@ -36,6 +36,7 @@ import (
 
 	clavexv1alpha1 "github.com/clavex-eu/clavex-operator/api/v1alpha1"
 	"github.com/clavex-eu/clavex-operator/internal/authsecret"
+	"github.com/clavex-eu/clavex-operator/internal/eventstream"
 )
 
 const (
@@ -60,6 +61,29 @@ type ClavexAuthPolicyReconciler struct {
 	// ClavexServerURL is the base URL of the Clavex Admin API. See
 	// ClavexClientReconciler.ClavexServerURL.
 	ClavexServerURL string
+
+	// EventStream drives near-instant drift detection — see
+	// ClavexClientReconciler.EventStream.
+	EventStream *eventstream.Manager
+}
+
+// streamItems lists all ClavexAuthPolicy CRs as event-stream items.
+func (r *ClavexAuthPolicyReconciler) streamItems(ctx context.Context) ([]eventstream.Item, error) {
+	var list clavexv1alpha1.ClavexAuthPolicyList
+	if err := r.List(ctx, &list); err != nil {
+		return nil, err
+	}
+	items := make([]eventstream.Item, 0, len(list.Items))
+	for i := range list.Items {
+		cr := &list.Items[i]
+		items = append(items, eventstream.Item{
+			Object:    cr,
+			OrgSlug:   cr.Spec.OrgRef,
+			SecretRef: cr.Spec.AuthSecretRef,
+			Namespace: cr.Namespace,
+		})
+	}
+	return items, nil
 }
 
 // +kubebuilder:rbac:groups=clavex.clavex.eu,resources=clavexauthpolicies,verbs=get;list;watch;create;update;patch;delete
@@ -96,6 +120,9 @@ func (r *ClavexAuthPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
+	if r.EventStream != nil {
+		r.EventStream.EnsureOrgWithKey(cr.Spec.OrgRef, apiKey)
+	}
 	cvx, err := clavex.New(r.ClavexServerURL, clavex.WithAPIKey(apiKey))
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("building Clavex client: %w", err)
@@ -289,8 +316,11 @@ func (r *ClavexAuthPolicyReconciler) setCondition(cr *clavexv1alpha1.ClavexAuthP
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ClavexAuthPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
+	b := ctrl.NewControllerManagedBy(mgr).
 		For(&clavexv1alpha1.ClavexAuthPolicy{}).
-		Named("clavexauthpolicy").
-		Complete(r)
+		Named("clavexauthpolicy")
+	if r.EventStream != nil {
+		b = b.WatchesRawSource(streamSource(r.EventStream, eventstream.ResourceAuthPolicy, r.streamItems))
+	}
+	return b.Complete(r)
 }

@@ -37,6 +37,7 @@ import (
 
 	clavexv1alpha1 "github.com/clavex-eu/clavex-operator/api/v1alpha1"
 	"github.com/clavex-eu/clavex-operator/internal/authsecret"
+	"github.com/clavex-eu/clavex-operator/internal/eventstream"
 )
 
 const (
@@ -60,6 +61,29 @@ type ClavexIdentityProviderReconciler struct {
 	// ClavexServerURL is the base URL of the Clavex Admin API. See
 	// ClavexClientReconciler.ClavexServerURL.
 	ClavexServerURL string
+
+	// EventStream drives near-instant drift detection — see
+	// ClavexClientReconciler.EventStream.
+	EventStream *eventstream.Manager
+}
+
+// streamItems lists all ClavexIdentityProvider CRs as event-stream items.
+func (r *ClavexIdentityProviderReconciler) streamItems(ctx context.Context) ([]eventstream.Item, error) {
+	var list clavexv1alpha1.ClavexIdentityProviderList
+	if err := r.List(ctx, &list); err != nil {
+		return nil, err
+	}
+	items := make([]eventstream.Item, 0, len(list.Items))
+	for i := range list.Items {
+		cr := &list.Items[i]
+		items = append(items, eventstream.Item{
+			Object:    cr,
+			OrgSlug:   cr.Spec.OrgRef,
+			SecretRef: cr.Spec.AuthSecretRef,
+			Namespace: cr.Namespace,
+		})
+	}
+	return items, nil
 }
 
 // +kubebuilder:rbac:groups=clavex.clavex.eu,resources=clavexidentityproviders,verbs=get;list;watch;create;update;patch;delete
@@ -93,6 +117,9 @@ func (r *ClavexIdentityProviderReconciler) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
+	if r.EventStream != nil {
+		r.EventStream.EnsureOrgWithKey(cr.Spec.OrgRef, apiKey)
+	}
 	cvx, err := clavex.New(r.ClavexServerURL, clavex.WithAPIKey(apiKey))
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("building Clavex client: %w", err)
@@ -292,8 +319,11 @@ func (r *ClavexIdentityProviderReconciler) setCondition(cr *clavexv1alpha1.Clave
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ClavexIdentityProviderReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
+	b := ctrl.NewControllerManagedBy(mgr).
 		For(&clavexv1alpha1.ClavexIdentityProvider{}).
-		Named("clavexidentityprovider").
-		Complete(r)
+		Named("clavexidentityprovider")
+	if r.EventStream != nil {
+		b = b.WatchesRawSource(streamSource(r.EventStream, eventstream.ResourceIdentityProvider, r.streamItems))
+	}
+	return b.Complete(r)
 }

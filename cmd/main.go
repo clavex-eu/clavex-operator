@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
 	"fmt"
@@ -37,7 +38,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	clavexv1alpha1 "github.com/clavex-eu/clavex-operator/api/v1alpha1"
+	"github.com/clavex-eu/clavex-operator/internal/authsecret"
 	"github.com/clavex-eu/clavex-operator/internal/controller"
+	"github.com/clavex-eu/clavex-operator/internal/eventstream"
 	webhookv1alpha1 "github.com/clavex-eu/clavex-operator/internal/webhook/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
@@ -189,11 +192,29 @@ func main() {
 		os.Exit(1)
 	}
 
+	// eventStream connects the operator to the Admin API's live audit stream so
+	// out-of-band mutations trigger an immediate reconcile. It resolves each
+	// org's stream API key from the same authSecretRef the controllers use, and
+	// runs only on the elected leader (see Manager.NeedLeaderElection).
+	eventStream := eventstream.NewManager(
+		clavexServerURL,
+		func(ctx context.Context, ref clavexv1alpha1.SecretRef, namespace string) (string, error) {
+			apiKey, _, err := authsecret.ResolveAuthSecret(ctx, mgr.GetClient(), ref, namespace)
+			return apiKey, err
+		},
+		mgr.GetLogger(),
+	)
+	if err := mgr.Add(eventStream); err != nil {
+		setupLog.Error(err, "Failed to add event stream manager")
+		os.Exit(1)
+	}
+
 	if err := (&controller.ClavexClientReconciler{
 		Client:          mgr.GetClient(),
 		Scheme:          mgr.GetScheme(),
 		Recorder:        mgr.GetEventRecorderFor("clavexclient-controller"),
 		ClavexServerURL: clavexServerURL,
+		EventStream:     eventStream,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "clavexclient")
 		os.Exit(1)
@@ -203,6 +224,7 @@ func main() {
 		Scheme:          mgr.GetScheme(),
 		Recorder:        mgr.GetEventRecorderFor("clavexidentityprovider-controller"),
 		ClavexServerURL: clavexServerURL,
+		EventStream:     eventStream,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "clavexidentityprovider")
 		os.Exit(1)
@@ -212,6 +234,7 @@ func main() {
 		Scheme:          mgr.GetScheme(),
 		Recorder:        mgr.GetEventRecorderFor("clavexrole-controller"),
 		ClavexServerURL: clavexServerURL,
+		EventStream:     eventStream,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "clavexrole")
 		os.Exit(1)
@@ -221,6 +244,7 @@ func main() {
 		Scheme:          mgr.GetScheme(),
 		Recorder:        mgr.GetEventRecorderFor("clavexgroup-controller"),
 		ClavexServerURL: clavexServerURL,
+		EventStream:     eventStream,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "clavexgroup")
 		os.Exit(1)
@@ -230,6 +254,7 @@ func main() {
 		Scheme:          mgr.GetScheme(),
 		Recorder:        mgr.GetEventRecorderFor("clavexwebhook-controller"),
 		ClavexServerURL: clavexServerURL,
+		EventStream:     eventStream,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "clavexwebhook")
 		os.Exit(1)
@@ -239,6 +264,7 @@ func main() {
 		Scheme:          mgr.GetScheme(),
 		Recorder:        mgr.GetEventRecorderFor("clavexorg-controller"),
 		ClavexServerURL: clavexServerURL,
+		EventStream:     eventStream,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "clavexorg")
 		os.Exit(1)
@@ -248,6 +274,7 @@ func main() {
 		Scheme:          mgr.GetScheme(),
 		Recorder:        mgr.GetEventRecorderFor("clavexauthpolicy-controller"),
 		ClavexServerURL: clavexServerURL,
+		EventStream:     eventStream,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "clavexauthpolicy")
 		os.Exit(1)
