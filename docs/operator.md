@@ -40,10 +40,44 @@ cross-org credentials — reconciliation is entirely constrained to the
 org the key belongs to (enforced by the Admin API's `RequireOrgAccess`
 middleware).
 
-A superadmin (today, minting org-scoped keys is a superadmin-only
-operation — see the auth-model decision in the implementation plan) mints
-one per org via the existing `POST /api/v1/superadmin/api-keys` endpoint,
-passing `org_id`. Then create the Secret the CRs will reference:
+An **org admin mints this key themselves** from the tenant console — no
+superadmin involvement is required. In the admin console, open your org and
+go to **Applications → API Keys → New API key**, then:
+
+- give it a name (e.g. `clavex-operator`),
+- leave the scope at **Read-Write**,
+- tick **only** the permission checkboxes the operator needs (see the
+  per-CRD table below — grant the least privilege for the CRDs you actually
+  deploy),
+- click **Create key** and copy the value **immediately** — it is shown
+  once and never again.
+
+The console only offers permissions you yourself hold, and the Admin API
+rejects any request for a permission above your own grant (HTTP 403), so a
+key can never be minted with more authority than its creator. The key is
+automatically scoped to your org; unrestricted or cross-org keys remain a
+superadmin-only operation.
+
+#### Least-privilege permissions per CRD
+
+Grant only the tokens for the CRDs you deploy (`:write` implies `:read`, so
+no separate read tokens are needed):
+
+| CRD | Admin API resource | Permission token |
+|-----|--------------------|------------------|
+| `ClavexClient` | OIDC clients (`/clients`, secret rotation) | `clients:write` |
+| `ClavexIdentityProvider` | Identity providers (`/identity-providers`) | `identity_providers:write` |
+| `ClavexRole` | Roles (`/roles`) | `roles:write` |
+| `ClavexGroup` | Groups (`/groups`) | `groups:write` |
+| `ClavexWebhook` | Webhooks (`/webhooks`) | `webhooks:write` |
+| `ClavexOrg` | Password policy + rate limits | `security:write` |
+| `ClavexAuthPolicy` | Conditional-access rules (`/auth-policies`) | `security:write` |
+
+A key managing **all seven** CRDs therefore needs:
+`clients:write`, `identity_providers:write`, `roles:write`, `groups:write`,
+`webhooks:write`, `security:write`.
+
+Then create the Secret the CRs will reference:
 
 ```sh
 kubectl create secret generic acme-admin-api-key \
