@@ -1,6 +1,6 @@
 package controller
 
-import "sort"
+import "slices"
 
 // equalStringSets reports whether a and b contain the same elements, treating a
 // nil slice and an empty slice as equal and ignoring order. Drift comparisons
@@ -18,8 +18,8 @@ func equalStringSets(a, b []string) bool {
 	}
 	ca := append([]string(nil), a...)
 	cb := append([]string(nil), b...)
-	sort.Strings(ca)
-	sort.Strings(cb)
+	slices.Sort(ca)
+	slices.Sort(cb)
 	for i := range ca {
 		if ca[i] != cb[i] {
 			return false

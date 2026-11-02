@@ -98,7 +98,7 @@ func (c *conn) connectAndRead(ctx context.Context) error {
 		}
 		return fmt.Errorf("dial %s: %w", c.slug, err)
 	}
-	defer ws.Close()
+	defer func() { _ = ws.Close() }()
 	c.m.log.Info("event stream connected", "org", c.slug)
 
 	// ReadMessage blocks and does not observe ctx; closing the socket when ctx

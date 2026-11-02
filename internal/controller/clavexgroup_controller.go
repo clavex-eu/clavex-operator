@@ -24,7 +24,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -47,7 +47,7 @@ type ClavexGroupReconciler struct {
 	Scheme *runtime.Scheme
 
 	// Recorder emits Kubernetes Events — see ClavexClientReconciler.Recorder.
-	Recorder record.EventRecorder
+	Recorder events.EventRecorder
 
 	// ClavexServerURL is the base URL of the Clavex Admin API. See
 	// ClavexClientReconciler.ClavexServerURL.
@@ -82,6 +82,7 @@ func (r *ClavexGroupReconciler) streamItems(ctx context.Context) ([]eventstream.
 // +kubebuilder:rbac:groups=clavex.clavex.eu,resources=clavexgroups/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // Reconcile moves the live Clavex group closer to the desired state
 // described by a ClavexGroup CR, using an org-scoped Admin API key read

@@ -24,7 +24,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -49,7 +49,7 @@ type ClavexOrgReconciler struct {
 	Scheme *runtime.Scheme
 
 	// Recorder emits Kubernetes Events — see ClavexClientReconciler.Recorder.
-	Recorder record.EventRecorder
+	Recorder events.EventRecorder
 
 	// ClavexServerURL is the base URL of the Clavex Admin API. See
 	// ClavexClientReconciler.ClavexServerURL.
@@ -84,6 +84,7 @@ func (r *ClavexOrgReconciler) streamItems(ctx context.Context) ([]eventstream.It
 // +kubebuilder:rbac:groups=clavex.clavex.eu,resources=clavexorgs/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // Reconcile keeps an existing Clavex organisation's settings (password
 // policy, rate limits) in sync with a ClavexOrg CR's spec, using an
@@ -175,7 +176,7 @@ func (r *ClavexOrgReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if drifted {
 		syncReason, syncMessage = syncReasonDriftCorrected, "Live org settings had diverged from spec out-of-band; corrected to match spec"
 		if r.Recorder != nil {
-			r.Recorder.Event(&cr, "Normal", "DriftDetected", syncMessage)
+			r.Recorder.Eventf(&cr, nil, "Normal", "DriftDetected", eventActionReconcile, "%s", syncMessage)
 		}
 	}
 

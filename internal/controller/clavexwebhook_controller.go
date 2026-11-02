@@ -26,7 +26,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -55,7 +55,7 @@ type ClavexWebhookReconciler struct {
 	Scheme *runtime.Scheme
 
 	// Recorder emits Kubernetes Events — see ClavexClientReconciler.Recorder.
-	Recorder record.EventRecorder
+	Recorder events.EventRecorder
 
 	// ClavexServerURL is the base URL of the Clavex Admin API. See
 	// ClavexClientReconciler.ClavexServerURL.
@@ -90,6 +90,7 @@ func (r *ClavexWebhookReconciler) streamItems(ctx context.Context) ([]eventstrea
 // +kubebuilder:rbac:groups=clavex.clavex.eu,resources=clavexwebhooks/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // Reconcile moves the live Clavex webhook closer to the desired state
 // described by a ClavexWebhook CR, using an org-scoped Admin API key read
@@ -254,7 +255,7 @@ func (r *ClavexWebhookReconciler) reconcileWebhook(ctx context.Context, cvx *cla
 
 	drifted = cr.Status.ObservedGeneration == cr.Generation
 	if drifted && r.Recorder != nil {
-		r.Recorder.Eventf(cr, corev1.EventTypeNormal, eventReasonWebhookDriftDetected,
+		r.Recorder.Eventf(cr, nil, corev1.EventTypeNormal, eventReasonWebhookDriftDetected, eventActionReconcile,
 			"Live webhook %q no longer matches spec though it was not edited via kubectl; correcting via PATCH", cr.Spec.URL)
 	}
 
