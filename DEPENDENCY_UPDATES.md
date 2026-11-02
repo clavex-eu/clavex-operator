@@ -6,4 +6,6 @@ Validation uses isolated envtest API server/etcd binaries (Kubernetes 1.36.2), t
 
 Pinned the custom logcheck linter plugin to logtools v0.11.0 instead of a floating latest version for reproducible lint builds.
 
-The repository's custom `make lint` (golangci-lint 2.12.2 with logcheck 0.11.0) completed but reported 8 issues in existing source: forbidden sort import; two unchecked WebSocket Close calls; repeated test string; legacy atomic counter; and three deprecated GetEventRecorderFor calls. These are not suppressed. Keep this maintenance PR in draft until the source/lint follow-up is addressed.
+Resolved the 8 lint issues without suppressions: use slices.Sort, explicitly discard WebSocket cleanup errors, use atomic.Int32 and a shared test constant, and migrate all seven controllers to GetEventRecorder and the events.EventRecorder interface. Drift notifications retain their reason and note, with an explicit Reconcile action. The drift-correction integration test now checks that initial creation emits no drift notification and a subsequent out-of-band change does.
+
+Regenerated RBAC from controller markers to grant create/patch for events.k8s.io events, while preserving the core events permissions used by other manager components. An eventual deployment upgrade must apply this updated RBAC alongside the manager image. CRD schemas and generated Go API definitions are unchanged. No live cluster was changed.

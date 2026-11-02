@@ -16,6 +16,8 @@ import (
 	clavexv1alpha1 "github.com/clavex-eu/clavex-operator/api/v1alpha1"
 )
 
+const testOrgA = "orgA"
+
 // ── parseResourceType ─────────────────────────────────────────────────────────
 
 func TestParseResourceType(t *testing.T) {
@@ -77,13 +79,13 @@ func TestDispatch_RelevantEnqueuesMatchingOrg(t *testing.T) {
 	m := testManager(t, "http://example")
 	ch := m.Register(ResourceOIDCClient, func(context.Context) ([]Item, error) {
 		return []Item{
-			{Object: clientCR("a1", "orgA"), OrgSlug: "orgA"},
-			{Object: clientCR("a2", "orgA"), OrgSlug: "orgA"},
+			{Object: clientCR("a1", testOrgA), OrgSlug: testOrgA},
+			{Object: clientCR("a2", testOrgA), OrgSlug: testOrgA},
 			{Object: clientCR("b1", "orgB"), OrgSlug: "orgB"},
 		}, nil
 	})
 
-	m.dispatch(context.Background(), "orgA", ResourceOIDCClient)
+	m.dispatch(context.Background(), testOrgA, ResourceOIDCClient)
 
 	got := drain(ch, 2, 200*time.Millisecond)
 	if len(got) != 2 {
@@ -101,9 +103,9 @@ func TestDispatch_RelevantEnqueuesMatchingOrg(t *testing.T) {
 // lifetime; the periodic discovery loop opens connections once Start runs.
 func TestEnsureOrgWithKey_Guards(t *testing.T) {
 	m := testManager(t, "http://example")
-	m.EnsureOrgWithKey("", "k")     // empty slug
-	m.EnsureOrgWithKey("orgA", "")  // empty key
-	m.EnsureOrgWithKey("orgA", "k") // runCtx nil: not started yet
+	m.EnsureOrgWithKey("", "k")       // empty slug
+	m.EnsureOrgWithKey(testOrgA, "")  // empty key
+	m.EnsureOrgWithKey(testOrgA, "k") // runCtx nil: not started yet
 	m.mu.Lock()
 	n := len(m.conns)
 	m.mu.Unlock()
@@ -118,11 +120,11 @@ func TestEnsureOrgWithKey_Guards(t *testing.T) {
 func TestDispatch_DebouncesEcho(t *testing.T) {
 	m := testManager(t, "http://example")
 	ch := m.Register(ResourceOIDCClient, func(context.Context) ([]Item, error) {
-		return []Item{{Object: clientCR("a1", "orgA"), OrgSlug: "orgA"}}, nil
+		return []Item{{Object: clientCR("a1", testOrgA), OrgSlug: testOrgA}}, nil
 	})
 
-	m.dispatch(context.Background(), "orgA", ResourceOIDCClient)
-	m.dispatch(context.Background(), "orgA", ResourceOIDCClient) // echo, within window
+	m.dispatch(context.Background(), testOrgA, ResourceOIDCClient)
+	m.dispatch(context.Background(), testOrgA, ResourceOIDCClient) // echo, within window
 
 	if got := drain(ch, 2, 200*time.Millisecond); len(got) != 1 {
 		t.Fatalf("expected the echo to collapse to 1 enqueue, got %d", len(got))
@@ -133,11 +135,11 @@ func TestDispatch_DebouncesEcho(t *testing.T) {
 func TestDispatch_UnmanagedTypeIgnored(t *testing.T) {
 	m := testManager(t, "http://example")
 	ch := m.Register(ResourceOIDCClient, func(context.Context) ([]Item, error) {
-		return []Item{{Object: clientCR("a1", "orgA"), OrgSlug: "orgA"}}, nil
+		return []Item{{Object: clientCR("a1", testOrgA), OrgSlug: testOrgA}}, nil
 	})
 
 	// "session" is never registered → no channel, dispatch is a no-op.
-	m.dispatch(context.Background(), "orgA", "session")
+	m.dispatch(context.Background(), testOrgA, "session")
 
 	if got := drain(ch, 1, 100*time.Millisecond); len(got) != 0 {
 		t.Errorf("unmanaged resource_type should enqueue nothing, got %d", len(got))
@@ -170,19 +172,19 @@ func drain(ch <-chan event.GenericEvent, want int, timeout time.Duration) []even
 // carries the replay parameter so events missed while disconnected are
 // recovered. The recovered event triggers a reconcile without the poll.
 func TestConn_ReconnectReplaysAndEnqueues(t *testing.T) {
-	var connectCount int32
+	var connectCount atomic.Int32
 	var sawReplay atomic.Value // string
 	sawReplay.Store("")
 
 	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		sawReplay.Store(r.URL.Query().Get("replay"))
-		n := atomic.AddInt32(&connectCount, 1)
+		n := connectCount.Add(1)
 		ws, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			return
 		}
-		defer ws.Close()
+		defer func() { _ = ws.Close() }()
 		if n == 1 {
 			// Simulate a dropped connection immediately to force a reconnect.
 			return
@@ -201,11 +203,11 @@ func TestConn_ReconnectReplaysAndEnqueues(t *testing.T) {
 
 	m := testManager(t, srv.URL)
 	ch := m.Register(ResourceOIDCClient, func(context.Context) ([]Item, error) {
-		return []Item{{Object: clientCR("a1", "orgA"), OrgSlug: "orgA"}}, nil
+		return []Item{{Object: clientCR("a1", testOrgA), OrgSlug: testOrgA}}, nil
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
-	c := newConn(m, "orgA", "clv_testkey")
+	c := newConn(m, testOrgA, "clv_testkey")
 	go c.run(ctx)
 	defer func() { cancel(); c.stop() }()
 
@@ -218,7 +220,7 @@ func TestConn_ReconnectReplaysAndEnqueues(t *testing.T) {
 		t.Fatal("expected a reconcile enqueued from the replayed event after reconnect")
 	}
 
-	if got := atomic.LoadInt32(&connectCount); got < 2 {
+	if got := connectCount.Load(); got < 2 {
 		t.Errorf("expected at least 2 connections (drop + reconnect), got %d", got)
 	}
 	if got := sawReplay.Load().(string); got != "50" {

@@ -212,7 +212,7 @@ func main() {
 	if err := (&controller.ClavexClientReconciler{
 		Client:          mgr.GetClient(),
 		Scheme:          mgr.GetScheme(),
-		Recorder:        mgr.GetEventRecorderFor("clavexclient-controller"),
+		Recorder:        mgr.GetEventRecorder("clavexclient-controller"),
 		ClavexServerURL: clavexServerURL,
 		EventStream:     eventStream,
 	}).SetupWithManager(mgr); err != nil {
@@ -222,7 +222,7 @@ func main() {
 	if err := (&controller.ClavexIdentityProviderReconciler{
 		Client:          mgr.GetClient(),
 		Scheme:          mgr.GetScheme(),
-		Recorder:        mgr.GetEventRecorderFor("clavexidentityprovider-controller"),
+		Recorder:        mgr.GetEventRecorder("clavexidentityprovider-controller"),
 		ClavexServerURL: clavexServerURL,
 		EventStream:     eventStream,
 	}).SetupWithManager(mgr); err != nil {
@@ -232,7 +232,7 @@ func main() {
 	if err := (&controller.ClavexRoleReconciler{
 		Client:          mgr.GetClient(),
 		Scheme:          mgr.GetScheme(),
-		Recorder:        mgr.GetEventRecorderFor("clavexrole-controller"),
+		Recorder:        mgr.GetEventRecorder("clavexrole-controller"),
 		ClavexServerURL: clavexServerURL,
 		EventStream:     eventStream,
 	}).SetupWithManager(mgr); err != nil {
@@ -242,7 +242,7 @@ func main() {
 	if err := (&controller.ClavexGroupReconciler{
 		Client:          mgr.GetClient(),
 		Scheme:          mgr.GetScheme(),
-		Recorder:        mgr.GetEventRecorderFor("clavexgroup-controller"),
+		Recorder:        mgr.GetEventRecorder("clavexgroup-controller"),
 		ClavexServerURL: clavexServerURL,
 		EventStream:     eventStream,
 	}).SetupWithManager(mgr); err != nil {
@@ -252,7 +252,7 @@ func main() {
 	if err := (&controller.ClavexWebhookReconciler{
 		Client:          mgr.GetClient(),
 		Scheme:          mgr.GetScheme(),
-		Recorder:        mgr.GetEventRecorderFor("clavexwebhook-controller"),
+		Recorder:        mgr.GetEventRecorder("clavexwebhook-controller"),
 		ClavexServerURL: clavexServerURL,
 		EventStream:     eventStream,
 	}).SetupWithManager(mgr); err != nil {
@@ -262,7 +262,7 @@ func main() {
 	if err := (&controller.ClavexOrgReconciler{
 		Client:          mgr.GetClient(),
 		Scheme:          mgr.GetScheme(),
-		Recorder:        mgr.GetEventRecorderFor("clavexorg-controller"),
+		Recorder:        mgr.GetEventRecorder("clavexorg-controller"),
 		ClavexServerURL: clavexServerURL,
 		EventStream:     eventStream,
 	}).SetupWithManager(mgr); err != nil {
@@ -272,7 +272,7 @@ func main() {
 	if err := (&controller.ClavexAuthPolicyReconciler{
 		Client:          mgr.GetClient(),
 		Scheme:          mgr.GetScheme(),
-		Recorder:        mgr.GetEventRecorderFor("clavexauthpolicy-controller"),
+		Recorder:        mgr.GetEventRecorder("clavexauthpolicy-controller"),
 		ClavexServerURL: clavexServerURL,
 		EventStream:     eventStream,
 	}).SetupWithManager(mgr); err != nil {

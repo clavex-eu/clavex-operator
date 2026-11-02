@@ -27,6 +27,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -233,11 +234,15 @@ var _ = Describe("ClavexClient Controller", func() {
 		})
 
 		It("should detect and correct out-of-band drift without a spec change", func() {
+			recorder := events.NewFakeRecorder(1)
+			controllerReconciler.Recorder = recorder
 			By("reconciling once to create the remote client")
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: typeNamespacedName,
 			})
 			Expect(err).NotTo(HaveOccurred())
+
+			Expect(recorder.Events).NotTo(Receive())
 
 			By("simulating an out-of-band edit directly against the Admin API")
 			fakeAPI.liveName = "Edited Outside Kubernetes"
@@ -248,6 +253,9 @@ var _ = Describe("ClavexClient Controller", func() {
 				NamespacedName: typeNamespacedName,
 			})
 			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying the drift emitted a Kubernetes notification")
+			Expect(recorder.Events).To(Receive(ContainSubstring("Normal DriftDetected Live client")))
 
 			By("verifying the drift was corrected via PATCH")
 			Expect(fakeAPI.patchCalled).To(BeTrue())

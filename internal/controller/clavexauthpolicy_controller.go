@@ -26,7 +26,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -56,7 +56,7 @@ type ClavexAuthPolicyReconciler struct {
 	Scheme *runtime.Scheme
 
 	// Recorder emits Kubernetes Events — see ClavexClientReconciler.Recorder.
-	Recorder record.EventRecorder
+	Recorder events.EventRecorder
 
 	// ClavexServerURL is the base URL of the Clavex Admin API. See
 	// ClavexClientReconciler.ClavexServerURL.
@@ -91,6 +91,7 @@ func (r *ClavexAuthPolicyReconciler) streamItems(ctx context.Context) ([]eventst
 // +kubebuilder:rbac:groups=clavex.clavex.eu,resources=clavexauthpolicies/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // Reconcile moves the live Clavex auth-flow policy rule closer to the
 // desired state described by a ClavexAuthPolicy CR, using an org-scoped
@@ -260,7 +261,7 @@ func (r *ClavexAuthPolicyReconciler) reconcileAuthPolicy(ctx context.Context, cv
 
 	drifted = cr.Status.ObservedGeneration == cr.Generation
 	if drifted && r.Recorder != nil {
-		r.Recorder.Eventf(cr, corev1.EventTypeNormal, eventReasonAuthPolicyDriftDetected,
+		r.Recorder.Eventf(cr, nil, corev1.EventTypeNormal, eventReasonAuthPolicyDriftDetected, eventActionReconcile,
 			"Live policy rule %q no longer matches spec though it was not edited via kubectl; correcting via PUT", cr.Spec.Name)
 	}
 

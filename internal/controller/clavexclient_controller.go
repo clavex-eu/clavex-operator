@@ -26,7 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -70,6 +70,7 @@ const (
 	// Admin UI), just before the reconciler corrects it. This keeps the
 	// correction visible instead of a silent overwrite.
 	eventReasonDriftDetected = "DriftDetected"
+	eventActionReconcile     = "Reconcile"
 )
 
 // ClavexClientReconciler reconciles a ClavexClient object
@@ -80,7 +81,7 @@ type ClavexClientReconciler struct {
 	// Recorder emits Kubernetes Events, used to surface out-of-band drift
 	// corrections visibly (kubectl describe / events) rather than silently
 	// overwriting the Admin API resource on every reconcile.
-	Recorder record.EventRecorder
+	Recorder events.EventRecorder
 
 	// ClavexServerURL is the base URL of the Clavex Admin API (e.g.
 	// https://id.acme.example). Cluster-wide install: a single Clavex
@@ -120,6 +121,7 @@ func (r *ClavexClientReconciler) streamItems(ctx context.Context) ([]eventstream
 // +kubebuilder:rbac:groups=clavex.clavex.eu,resources=clavexclients/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // Reconcile moves the live Clavex OIDC client closer to the desired state
 // described by a ClavexClient CR, using an org-scoped Admin API key read
@@ -278,7 +280,7 @@ func (r *ClavexClientReconciler) reconcileClient(ctx context.Context, cvx *clave
 	// Event + a dedicated condition reason instead of a silent overwrite.
 	drifted = cr.Status.ObservedGeneration == cr.Generation
 	if drifted && r.Recorder != nil {
-		r.Recorder.Eventf(cr, corev1.EventTypeNormal, eventReasonDriftDetected,
+		r.Recorder.Eventf(cr, nil, corev1.EventTypeNormal, eventReasonDriftDetected, eventActionReconcile,
 			"Live client %q no longer matches spec though it was not edited via kubectl; correcting via PATCH", cr.Spec.ClientID)
 	}
 
